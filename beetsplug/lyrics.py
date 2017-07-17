@@ -32,6 +32,8 @@ import warnings
 import six
 from six.moves import urllib
 
+from pybloom import ScalableBloomFilter
+
 try:
     from bs4 import SoupStrainer, BeautifulSoup
     HAS_BEAUTIFUL_SOUP = True
@@ -641,6 +643,9 @@ class LyricsPlugin(plugins.BeetsPlugin):
         self.config['google_engine_ID'].redact = True
         self.config['genius_api_key'].redact = True
 
+        # bloom filter of non-existent lyrics
+        self.bf = ScalableBloomFilter()
+
         # State information for the ReST writer.
         # First, the current artist we're writing.
         self.artist = u'Unknown artist'
@@ -858,12 +863,17 @@ class LyricsPlugin(plugins.BeetsPlugin):
         """Fetch lyrics, trying each source in turn. Return a string or
         None if no lyrics were found.
         """
+        # if we already failed to find that pair, just skip the request
+        if artist + '-' + title in self.bf:
+            return
         for backend in self.backends:
             lyrics = backend.fetch(artist, title)
             if lyrics:
                 self._log.debug(u'got lyrics from backend: {0}',
                                 backend.__class__.__name__)
                 return _scrape_strip_cruft(lyrics, True)
+        # remember our failure
+        self.bf.add(artist + '-' + title)
 
     def append_translation(self, text, to_lang):
         import xml.etree.ElementTree as ET
